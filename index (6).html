@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>3D Ladder - Pausable Video & Web Zoom</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+            background-color: #87CEEB; font-family: 'Arial Black', Impact, sans-serif;
+            touch-action: none; user-select: none; -webkit-user-select: none;
+        }
+
+        #game-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; pointer-events: none; display: flex; flex-direction: column; }
+
+        .stroke-text { color: white; text-shadow: -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000, 0px 3px 5px rgba(0,0,0,0.5); }
+        .stroke-text-yellow { color: #FFD700; text-shadow: -3px -3px 0 #000, 3px -3px 0 #000, -3px 3px 0 #000, 3px 3px 0 #000, 0px 4px 8px rgba(0,0,0,0.5); }
+        .stroke-text-green { color: #32CD32; text-shadow: -3px -3px 0 #000, 3px -3px 0 #000, -3px 3px 0 #000, 3px 3px 0 #000, 0px 4px 8px rgba(0,0,0,0.5); }
+        .stroke-text-red { color: #FF3333; text-shadow: -3px -3px 0 #000, 3px -3px 0 #000, -3px 3px 0 #000, 3px 3px 0 #000, 0px 4px 8px rgba(0,0,0,0.5); }
+
+        .btn-container { position: absolute; right: 20px; bottom: 30px; pointer-events: auto; z-index: 15; transition: opacity 0.2s; }
+        .circle-btn {
+            width: 90px; height: 90px; background: radial-gradient(circle at 30% 30%, #ff6b6b, #cc0000);
+            border: 4px solid white; border-radius: 50%; color: white; font-weight: bold; font-size: 1.2rem; display: flex; justify-content: center; align-items: center; flex-direction: column;
+            box-shadow: 0 6px 12px rgba(0,0,0,0.5), inset 0 -4px 6px rgba(0,0,0,0.3); text-shadow: 1px 1px 2px #000; transition: transform 0.1s; cursor: pointer;
+        }
+        .circle-btn:active { transform: scale(0.9) translateY(4px); background: radial-gradient(circle at 30% 30%, #e60000, #990000); }
+
+        .left-slots { position: absolute; left: 20px; bottom: 30px; display: flex; flex-direction: column-reverse; gap: 10px; pointer-events: auto; z-index: 15; transition: opacity 0.3s; }
+        .slot-btn {
+            width: 55px; height: 55px; background: rgba(255, 255, 255, 0.2); border: 2px solid rgba(255, 255, 255, 0.5); border-radius: 8px;
+            display: flex; justify-content: center; align-items: center; text-align: center; color: white; font-weight: bold; font-size: 0.9rem; line-height: 1.1;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3); backdrop-filter: blur(4px); text-shadow: 1px 1px 2px #000; transition: transform 0.1s, background 0.2s, border-color 0.2s;
+        }
+        .slot-btn.active-slot { background: radial-gradient(circle at 30% 30%, #4da6ff, #0066cc); border-color: white; cursor: pointer; }
+        .slot-btn.active-slot:active { transform: scale(0.9); }
+        .slot-btn.mode-down { background: radial-gradient(circle at 30% 30%, #ff9900, #cc6600); border-color: #FFD700; }
+        .slot-btn.mode-rock { background: radial-gradient(circle at 30% 30%, #666666, #333333); border-color: #ff3333; color: #ffcccc; }
+        .slot-btn.mode-laser { background: radial-gradient(circle at 30% 30%, #ffff66, #cc9900); border-color: #ff3300; color: #ff0000; }
+        .slot-btn.mode-rocket { background: radial-gradient(circle at 30% 30%, #00ffff, #0088cc); border-color: #ffffff; color: #ffffff; }
+        .slot-btn.mode-suit { background: radial-gradient(circle at 30% 30%, #dd1111, #880000); border-color: #ff99ff; color: #ffffff; }
+
+        .hud-top { position: absolute; top: 8%; width: 100%; text-align: center; }
+        #countdown-display { position: absolute; top: 35%; width: 100%; text-align: center; font-size: 9rem; display: none; pointer-events: none; }
+        #flash-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: white; z-index: 50; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+
+        /* --- ระบบเมนูด้านซ้าย --- */
+        .top-left-controls { position: absolute; top: 20px; left: 20px; z-index: 30; pointer-events: auto; display: flex; gap: 15px; }
+        .top-btn { color: white; font-size: 2.5rem; line-height: 1; cursor: pointer; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); transition: transform 0.1s, opacity 0.3s; }
+        .top-btn:active { transform: scale(0.9); }
+        
+        #sidebar {
+            position: absolute; top: 0; left: -280px; width: 280px; height: 100%; background: rgba(20, 20, 30, 0.9); backdrop-filter: blur(5px);
+            z-index: 45; transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1); pointer-events: auto; border-right: 2px solid rgba(255,255,255,0.2);
+            display: flex; flex-direction: column; padding-top: 80px; align-items: center; gap: 10px; overflow-y: auto; padding-bottom: 20px;
+        }
+        #sidebar.open { left: 0; }
+        .sidebar-btn {
+            width: 85%; padding: 10px; background: linear-gradient(to bottom, #4a4a4a, #2a2a2a); border: 2px solid #888; border-radius: 12px;
+            color: white; font-weight: bold; font-size: 1.1rem; text-align: center; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.5); transition: transform 0.1s;
+        }
+        .sidebar-btn:active { transform: scale(0.95); }
+        .sidebar-section { width: 85%; margin-top: 5px; color: white; text-align: left; font-size: 0.95rem; }
+        .custom-input { flex: 1; padding: 6px; border-radius: 6px; border: 2px solid #888; background: rgba(255,255,255,0.95); font-weight: bold; width: 100%; color: black; }
+        .action-btn { background: #32CD32; color: white; border: 2px solid white; border-radius: 6px; padding: 0 10px; font-weight: bold; cursor: pointer; }
+
+        /* --- Modal ทั่วไป --- */
+        .modal-box {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.8); background: rgba(30, 30, 50, 0.95);
+            padding: 20px; border-radius: 20px; border: 3px solid #FFD700; z-index: 60; pointer-events: auto; width: 90%; max-width: 450px;
+            text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.8); opacity: 0; visibility: hidden; transition: all 0.2s; max-height: 85vh; overflow-y: auto;
+        }
+        .modal-box.show { opacity: 1; visibility: visible; transform: translate(-50%, -50%) scale(1); }
+        .modal-close-btn { background: #ff3333; color: white; border: 2px solid white; padding: 10px 30px; font-size: 1.2rem; font-weight: bold; border-radius: 10px; cursor: pointer; margin-top: 15px;}
+        
+        .char-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 15px 0; }
+        .char-card { background: rgba(255,255,255,0.1); padding: 10px 5px; border-radius: 12px; cursor: pointer; border: 3px solid transparent; color: white; }
+        .char-card.active { border-color: #00ff00; background: rgba(0, 255, 0, 0.15); }
+        .char-card span { display: block; font-size: 2rem; margin-bottom: 5px; }
+
+        /* --- วิดเจ็ตนับวิน --- */
+        #win-widget {
+            position: absolute; top: 15vh; left: calc(50% - 75px); transform: scale(1.0); transform-origin: top left;
+            background: rgba(0, 0, 0, 0.7); border: 3px solid #FFD700; border-radius: 15px;
+            padding: 10px; z-index: 25; pointer-events: auto; display: none;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.6); backdrop-filter: blur(5px); min-width: 150px; text-align: center;
+        }
+        .drag-handle { background: #444; color: white; font-size: 0.8rem; padding: 4px; border-radius: 5px; cursor: grab; margin-bottom: 5px; user-select: none; }
+        .drag-handle:active { cursor: grabbing; }
+        .win-display-area { display: flex; justify-content: center; align-items: center; gap: 10px; font-size: 2.5rem; font-weight: bold; color: white; font-family: 'Impact', sans-serif;}
+        .win-number { background: rgba(255,255,255,0.1); padding: 5px 10px; border-radius: 8px; border: 1px dashed rgba(255,255,255,0.5); cursor: text; outline: none; min-width: 50px; }
+        .win-number:focus { border-color: #FFD700; background: rgba(255,255,255,0.2); }
+        .control-row { display: flex; justify-content: center; gap: 10px; margin-top: 10px; }
+        .small-btn { background: #666; color: white; border: none; width: 30px; height: 30px; font-size: 1.2rem; font-weight: bold; cursor: pointer; display: flex; justify-content: center; align-items: center; }
+        .small-btn.close-btn { background: #ff3333; border-radius: 50%; }
+
+        /* --- รูปภาพและ Web Widget อิสระ --- */
+        .custom-image-wrapper { position: absolute; z-index: 20; touch-action: none; width: 150px; pointer-events: auto; }
+        .custom-img-element { width: 100%; height: auto; pointer-events: none; border-radius: 8px; user-select: none; display: block; }
+        .resize-handle { position: absolute; bottom: 0; width: 40%; height: 30%; z-index: 22; cursor: pointer; }
+        .resize-handle.br { right: 0; cursor: se-resize; }
+        .resize-handle.bl { left: 0; cursor: sw-resize; }
+
+        /* Web Widget (iframe) */
+        #web-widget {
+            position: absolute; top: 15vh; left: 10vw; width: 350px; height: 500px;
+            background: #fff; border: 3px solid #0088cc; border-radius: 10px;
+            z-index: 35; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: none;
+            pointer-events: auto; transition: opacity 0.3s;
+        }
+
+        /* --- คลาสล่องหน (Eye Toggle) --- */
+        body.ui-hidden #eye-toggle-btn,
+        body.ui-hidden #menu-toggle-btn,
+        body.ui-hidden .left-slots {
+            opacity: 0 !important;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Video เต็มจอสำหรับเล่นเอฟเฟค (z-index 5 ให้อยู่หลังปุ่มกด UI) -->
+    <video id="fullscreen-video" style="position: absolute; top:0; left:0; width:100%; height:100%; object-fit: cover; z-index: 5; display: none; background: black; pointer-events: auto;" playsinline loop></video>
+    
+    <div id="flash-overlay"></div>
+    <canvas id="game-canvas"></canvas>
+
+    <div id="ui-layer">
+        <!-- เมนูด้านซ้าย และ ปุ่มตา -->
+        <div class="top-left-controls">
+            <div id="menu-toggle-btn" class="top-btn">⋮</div>
+            <div id="eye-toggle-btn" class="top-btn">👁️</div>
+        </div>
+
+        <div id="sidebar">
+            <div class="sidebar-btn" id="close-sidebar-btn" style="background: linear-gradient(to bottom, #ff4d4d, #cc0000); border-color: #ffcccc;">❌ ปิดหน้าต่างเมนู</div>
+            
+            <div style="width:85%; display:flex; gap:5px; margin-top:10px;">
+                <div class="sidebar-btn" id="open-web-btn" style="flex:1; border-color:#0088cc; width:auto;">🌐 เปิดเว็บไซต์</div>
+                <div class="sidebar-btn" id="eye-web-btn" style="width: 55px; border-color:#0088cc;">👁️</div>
+            </div>
+            
+            <div class="sidebar-btn" id="open-video-btn" style="border-color:#ff3333;">🎬 ใส่วิดีโอเอฟเฟค (1-5)</div>
+            <div class="sidebar-btn" id="open-effect-cfg-btn" style="border-color:#ff9900;">⏱️ ปรับระยะเอฟเฟค</div>
+            
+            <div class="sidebar-btn" id="open-char-btn" style="margin-top: 10px;">👤 เลือกตัวละคร (8 ตัว)</div>
+            <div class="sidebar-btn" id="open-audio-btn" style="border-color:#ff00ff;">🎵 ใส่เสียงสกิล (1-5)</div>
+            <div class="sidebar-btn" id="open-bgm-btn" style="border-color:#00ffff;">📻 เครื่องเล่นเพลงพื้นหลัง</div>
+            <div class="sidebar-btn" id="open-win-btn" style="border-color:#FFD700;">🏆 ระบบนับวิน</div>
+            <div class="sidebar-btn" id="open-img-btn" style="border-color:#32CD32;">🖼️ แปะรูปภาพบนจอ</div>
+            <div class="sidebar-btn" id="toggle-climb-btn" style="border-color:#ff9900;">👻 ซ่อนปุ่มปีน (กดได้)</div>
+            
+            <div class="sidebar-section">
+                <label>ตั้งระยะเป้าหมาย (เมตร):</label>
+                <div style="display: flex; gap: 8px; margin-top: 5px;">
+                    <input type="number" id="target-input" class="custom-input" value="1000" min="1" max="100000">
+                    <button id="target-btn" class="action-btn">ตกลง</button>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <label>ระดับเสียงเอฟเฟกต์: <span id="volume-val">100</span>%</label>
+                <input type="range" id="volume-slider" min="0" max="100" value="100" style="width: 100%; margin-top: 5px; accent-color: #32CD32;">
+            </div>
+        </div>
+
+        <!-- หน้าต่างเว็บไซต์ (ปุ่มขยาย/ย่อ + -) -->
+        <div id="web-widget">
+            <div id="web-drag-handle" style="background:#0088cc; color:white; padding:8px; border-radius: 5px 5px 0 0; cursor:grab; display:flex; justify-content:space-between; align-items:center; font-size:1.1rem; font-weight:bold;">
+                <span>🌐 เว็บไซต์</span>
+                <div style="display: flex; gap: 5px;">
+                    <button id="btn-web-zoom-in" class="small-btn" style="background:#32CD32; border-radius:5px; width:30px; height:30px;">+</button>
+                    <button id="btn-web-zoom-out" class="small-btn" style="background:#ff9900; border-radius:5px; width:30px; height:30px;">-</button>
+                    <button id="btn-web-close" class="small-btn" style="background:#ff3333; border-radius:5px; width:30px; height:30px;">X</button>
+                </div>
+            </div>
+            <!-- ใช้ลิงก์ที่มี iframe compatible -->
+            <iframe src="https://www.google.com/webhp?igu=1" style="width:100%; height:calc(100% - 46px); border:none; border-radius: 0 0 5px 5px; background:white;"></iframe>
+        </div>
+
+        <!-- หน้าต่างกำหนดค่าวิดีโอเอฟเฟค -->
+        <div id="video-modal" class="modal-box">
+            <h2 class="stroke-text-yellow text-2xl m-0">ใส่วิดีโอเอฟเฟค (1-5)</h2>
+            <p style="color:#aaa; font-size:0.8rem;">วิดีโอจะเล่น 10 วิ ก่อนตัดเข้าเอฟเฟค 3D</p>
+            <div style="display: flex; flex-direction: column; gap: 10px; margin: 15px 0; text-align: left;">
+                <div style="background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px;"><label style="color:#FFD700; font-weight:bold;">1 (▼ลง)</label><input type="file" id="video-file-1" accept="video/*" style="color:white; font-size:0.8rem; width:100%;"><div id="video-status-1" style="font-size:0.8rem; color:#ff6666;">ยังไม่มีวิดีโอ</div></div>
+                <div style="background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px;"><label style="color:#FFD700; font-weight:bold;">2 (🪨หิน)</label><input type="file" id="video-file-2" accept="video/*" style="color:white; font-size:0.8rem; width:100%;"><div id="video-status-2" style="font-size:0.8rem; color:#ff6666;">ยังไม่มีวิดีโอ</div></div>
+                <div style="background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px;"><label style="color:#FFD700; font-weight:bold;">3 (☀️แสง)</label><input type="file" id="video-file-3" accept="video/*" style="color:white; font-size:0.8rem; width:100%;"><div id="video-status-3" style="font-size:0.8rem; color:#ff6666;">ยังไม่มีวิดีโอ</div></div>
+                <div style="background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px;"><label style="color:#FFD700; font-weight:bold;">4 (🚀บิน)</label><input type="file" id="video-file-4" accept="video/*" style="color:white; font-size:0.8rem; width:100%;"><div id="video-status-4" style="font-size:0.8rem; color:#ff6666;">ยังไม่มีวิดีโอ</div></div>
+                <div style="background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px;"><label style="color:#FFD700; font-weight:bold;">5 (🦸‍♂️ฮีโร่)</label><input type="file" id="video-file-5" accept="video/*" style="color:white; font-size:0.8rem; width:100%;"><div id="video-status-5" style="font-size:0.8rem; color:#ff6666;">ยังไม่มีวิดีโอ</div></div>
+            </div>
+            <button class="modal-close-btn" id="close-video-btn">ปิด</button>
+        </div>
+
+        <!-- หน้าต่างปรับระยะเวลาเอฟเฟค -->
+        <div id="effcfg-modal" class="modal-box">
+            <h2 class="stroke-text-yellow text-2xl m-0">ปรับระยะเอฟเฟค (เมตร)</h2>
+            <p style="color:#aaa; font-size:0.8rem;">ใส่ค่าได้ตั้งแต่ 1 ถึง 100,000 เมตร</p>
+            <div style="display: flex; flex-direction: column; gap: 10px; margin: 15px 0; text-align: left;">
+                <div style="background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px;"><label style="color:#FFD700; font-weight:bold;">2 (🪨หิน) ระยะ:</label><input type="number" id="amt-slot2" value="50" min="1" max="100000" class="custom-input" style="width:100%;"></div>
+                <div style="background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px;"><label style="color:#FFD700; font-weight:bold;">3 (☀️แสง) ระยะ:</label><input type="number" id="amt-slot3" value="500" min="1" max="100000" class="custom-input" style="width:100%;"></div>
+                <div style="background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px;"><label style="color:#FFD700; font-weight:bold;">4 (🚀บิน) ระยะ:</label><input type="number" id="amt-slot4" value="50" min="1" max="100000" class="custom-input" style="width:100%;"></div>
+                <div style="background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px;"><label style="color:#FFD700; font-weight:bold;">5 (🦸‍♂️ฮีโร่) ระยะ:</label><input type="number" id="amt-slot5" value="500" min="1" max="100000" class="custom-input" style="width:100%;"></div>
+            </div>
+            <button class="modal-close-btn" id="close-effcfg-btn">ตกลง / ปิด</button>
+        </div>
+
+        <!-- โครงสร้างเดิม: Modal เลือกตัวละคร, ตั้งค่าวิน, เสียง, รูป, BGM -->
+        <div id="character-modal" class="modal-box">
+            <h2 class="stroke-text-yellow text-3xl m-0">เลือกตัวละคร</h2>
+            <div class="char-grid">
+                <div class="char-card active" data-char="human"><span>👦</span><div class="font-bold">คน</div></div>
+                <div class="char-card" data-char="ufo"><span>🛸</span><div class="font-bold">UFO</div></div>
+                <div class="char-card" data-char="saturn"><span>🪐</span><div class="font-bold">ดาวเสาร์</div></div>
+                <div class="char-card" data-char="mercury"><span>🌑</span><div class="font-bold">ดาวพุธ</div></div>
+                <div class="char-card" data-char="sun"><span>☀️</span><div class="font-bold">พระอาทิตย์</div></div>
+                <div class="char-card" data-char="cow"><span>🐮</span><div class="font-bold">วัว</div></div>
+                <div class="char-card" data-char="cat"><span>🐱</span><div class="font-bold">แมว</div></div>
+                <div class="char-card" data-char="earth"><span>🌍</span><div class="font-bold">โลก</div></div>
+            </div>
+            <button class="modal-close-btn" id="close-char-btn">ปิด</button>
+        </div>
+
+        <div id="win-modal" class="modal-box">
+            <h2 class="stroke-text-yellow text-2xl m-0">ตั้งค่าระบบนับวิน</h2>
+            <div style="display: flex; gap: 10px; justify-content: center; margin: 20px 0; color: white; text-align: left;">
+                <div><label>วินทำได้:</label><br><input type="number" id="init-current-win" class="custom-input" value="0" style="width: 100px;"></div>
+                <div><label>เป้าหมาย:</label><br><input type="number" id="init-target-win" class="custom-input" value="5" style="width: 100px;"></div>
+            </div>
+            <button class="action-btn" id="btn-show-win-widget" style="padding: 10px 20px; font-size: 1.2rem;">นำแสดงป้ายวินหน้าจอ</button><br>
+            <button class="modal-close-btn" id="close-win-btn">ปิด</button>
+        </div>
+
+        <div id="audio-modal" class="modal-box">
+            <h2 class="stroke-text-yellow text-2xl m-0">ใส่เสียงเอฟเฟกต์ (ปุ่มสกิล)</h2>
+            <div style="display: flex; flex-direction: column; gap: 10px; margin: 15px 0; text-align: left;">
+                <div style="background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px;"><label style="color:#FFD700; font-weight:bold;">1 (▼ลง)</label><input type="file" id="audio-file-1" accept="audio/*" style="color:white; font-size:0.8rem; width:100%;"><div id="audio-status-1" style="font-size:0.8rem; color:#ff6666;">ยังไม่มีเสียง</div></div>
+                <div style="background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px;"><label style="color:#FFD700; font-weight:bold;">2 (🪨หิน)</label><input type="file" id="audio-file-2" accept="audio/*" style="color:white; font-size:0.8rem; width:100%;"><div id="audio-status-2" style="font-size:0.8rem; color:#ff6666;">ยังไม่มีเสียง</div></div>
+                <div style="background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px;"><label style="color:#FFD700; font-weight:bold;">3 (☀️แสง)</label><input type="file" id="audio-file-3" accept="audio/*" style="color:white; font-size:0.8rem; width:100%;"><div id="audio-status-3" style="font-size:0.8rem; color:#ff6666;">ยังไม่มีเสียง</div></div>
+                <div style="background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px;"><label style="color:#FFD700; font-weight:bold;">4 (🚀บิน)</label><input type="file" id="audio-file-4" accept="audio/*" style="color:white; font-size:0.8rem; width:100%;"><div id="audio-status-4" style="font-size:0.8rem; color:#ff6666;">ยังไม่มีเสียง</div></div>
+                <div style="background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px;"><label style="color:#FFD700; font-weight:bold;">5 (🦸‍♂️ฮีโร่)</label><input type="file" id="audio-file-5" accept="audio/*" style="color:white; font-size:0.8rem; width:100%;"><div id="audio-status-5" style="font-size:0.8rem; color:#ff6666;">ยังไม่มีเสียง</div></div>
+            </div>
+            <button class="modal-close-btn" id="close-audio-btn">ปิด</button>
+        </div>
+
+        <div id="bgm-modal" class="modal-box">
+            <h2 class="stroke-text-yellow text-2xl m-0">📻 เครื่องเล่นเพลง (วนลูป)</h2>
+            <div style="margin-top: 15px; text-align: left; color: white;">
+                <label>ระดับเสียงเพลง: <span id="bgm-vol-val">100</span>%</label>
+                <input type="range" id="bgm-volume" min="0" max="100" value="100" style="width: 100%; accent-color: #00ffff;">
+            </div>
+            <input type="file" id="bgm-upload" accept="audio/*" multiple class="custom-input" style="margin: 15px 0;">
+            <button class="action-btn" id="btn-add-bgm" style="padding: 10px; font-size: 1.1rem; width: 100%; background: #0088cc; border-color: #00ffff;">เพิ่มเพลงลงคิว</button>
+            <div id="bgm-list-container" style="margin-top: 15px; background: rgba(0,0,0,0.4); padding: 10px; border-radius: 8px; max-height: 150px; overflow-y: auto;">
+                <div style="color: #aaa; font-size: 0.9rem; text-align:center;" id="empty-bgm-text">ยังไม่มีเพลงในคิว</div>
+                <div id="bgm-items"></div>
+            </div>
+            <button class="modal-close-btn" id="close-bgm-btn">ปิด</button>
+        </div>
+
+        <div id="image-modal" class="modal-box">
+            <h2 class="stroke-text-yellow text-2xl m-0">ระบบรูปภาพไร้กรอบ</h2>
+            <input type="file" id="image-upload" accept="image/*" class="custom-input" style="margin: 15px 0;">
+            <button class="action-btn" id="btn-add-image" style="padding: 10px 20px; font-size: 1.1rem; width: 100%;">เพิ่มรูปลงจอเลย!</button>
+            <div id="image-list-container" style="margin-top: 15px; background: rgba(0,0,0,0.4); padding: 10px; border-radius: 8px; max-height: 150px; overflow-y: auto;">
+                <div style="color: #aaa; font-size: 0.9rem;" id="empty-img-text">ยังไม่มีรูปภาพบนจอ</div>
+            </div>
+            <button class="modal-close-btn" id="close-img-btn">ปิดหน้าต่าง</button>
+        </div>
+
+        <div id="win-widget">
+            <div class="drag-handle" id="win-drag-handle">≡ ลากเพื่อย้าย ≡</div>
+            <div class="win-display-area">
+                <div id="hud-current-win" class="win-number" contenteditable="true" style="color: #fff;">0</div>
+                <span style="color: #FFD700;">-</span>
+                <div id="hud-target-win" class="win-number" contenteditable="true" style="color: #fff;">0</div>
+            </div>
+            <div class="control-row">
+                <button class="small-btn" id="btn-zoom-in" style="border-radius: 50%;">+</button>
+                <button class="small-btn" id="btn-zoom-out" style="border-radius: 50%;">-</button>
+                <button class="small-btn close-btn" id="btn-win-close">x</button>
+            </div>
+        </div>
+
+        <div class="hud-top">
+            <h1 class="text-6xl md:text-7xl stroke-text-yellow m-0" id="height-display">0m</h1>
+            <p class="text-2xl md:text-3xl stroke-text m-0" id="target-display">1,000m = WIN</p>
+        </div>
+
+        <div id="countdown-display" class="stroke-text-yellow animate-pulse">10</div>
+
+        <div class="left-slots">
+            <div id="btn-slot1" class="slot-btn active-slot">1<br>▼ลง</div>
+            <div id="btn-slot2" class="slot-btn active-slot">2<br>🪨หิน</div>
+            <div id="btn-slot3" class="slot-btn active-slot">3<br>☀️แสง</div>
+            <div id="btn-slot4" class="slot-btn active-slot">4<br>🚀บิน</div>
+            <div id="btn-slot5" class="slot-btn active-slot">5<br>🦸‍♂️ฮีโร่</div>
+        </div>
+
+        <div class="btn-container" id="btn-climb-container">
+            <div id="btn-climb" class="circle-btn"><span class="text-2xl">▲</span><span class="text-lg">ปีน</span></div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // ตัวแปรระบบเกม
+        // ==========================================
+        let START_Y = 2; let FINISH_Y = 1000; let LADDER_MIN_Y = -8; let LADDER_REAL_HEIGHT = FINISH_Y + 20; 
+        const SPEED_CLIMB = 0.2; const SPEED_ROCK = 0.5; const SPEED_ROCKET = 0.5; const SPEED_LASER = 1.0; const SPEED_SUIT = 1.5; 
+
+        let isClimbing = false; let isReversed = false; 
+        let q_rock = 0; let q_laser = 0; let q_rocket = 0; let q_suit = 0;     
+
+        let cutsceneQueue = []; let activeCutscene = null; let cutsceneTimer = 0;
+        let laserState = 0; let suitState = 0;
+        let climbAnimTime = 0; let globalTime = 0; 
+        let inFinishZone = false; let inLoseZone = false; let isCelebrating = false; 
+        let countdownValue = 10; let countdownInterval = null;
+        let fireworks = []; let fireworkGenerator = null;
+
+        // --- ฟังก์ชันลากวัตถุทั่วไป (Drag) ---
+        function makeDraggable(element, handle) {
+            let isDragging = false, startX, startY, initialLeft, initialTop;
+            const dragStart = (e) => {
+                if(e.target.tagName.toLowerCase() === 'button' || e.target.tagName.toLowerCase() === 'input' || e.target.contentEditable === 'true' || e.target.classList.contains('resize-handle')) return;
+                isDragging = true;
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX; const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                startX = clientX; startY = clientY; initialLeft = element.offsetLeft; initialTop = element.offsetTop;
+                document.addEventListener('mousemove', dragMove); document.addEventListener('mouseup', dragEnd);
+                document.addEventListener('touchmove', dragMove, {passive: false}); document.addEventListener('touchend', dragEnd);
+            };
+            const dragMove = (e) => {
+                if (!isDragging) return; e.preventDefault(); 
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX; const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                element.style.left = (initialLeft + (clientX - startX)) + 'px'; element.style.top = (initialTop + (clientY - startY)) + 'px';
+            };
+            const dragEnd = () => {
+                isDragging = false;
+                document.removeEventListener('mousemove', dragMove); document.removeEventListener('mouseup', dragEnd);
+                document.removeEventListener('touchmove', dragMove); document.removeEventListener('touchend', dragEnd);
+            };
+            handle.addEventListener('mousedown', dragStart); handle.addEventListener('touchstart', dragStart, {passive: false});
+        }
+
+        // ==========================================
+        // 1. ระบบวิดีโอเอฟเฟค (10 วินาทีหยุดเวลา)
+        // ==========================================
+        const videoFiles = { 1: null, 2: null, 3: null, 4: null, 5: null };
+        let activeVideoSlot = null;
+        let isVideoDelaying = false;
+        let videoTimeout = null;
+        let pendingVideoEffect = null;
+        const videoEl = document.getElementById('fullscreen-video');
+
+        for (let i = 1; i <= 5; i++) {
+            const vInput = document.getElementById(`video-file-${i}`);
+            if (vInput) {
+                vInput.addEventListener('change', (e) => {
+                    if (e.target.files[0]) {
+                        videoFiles[i] = URL.createObjectURL(e.target.files[0]);
+                        document.getElementById(`video-status-${i}`).innerText = "สถานะ: วิดีโอพร้อมแล้ว";
+                        document.getElementById(`video-status-${i}`).style.color = '#66ff66';
+                    }
+                });
+            }
+        }
+
+
+        function handleEffectTrigger(slot, effectAction) {
+            if (isCelebrating) return;
+            
+            // ถ้าสกิลนั้นมีวิดีโอถูกตั้งค่าไว้
+            if (videoFiles[slot]) {
+                // เคลียร์วิดีโอเก่าถ้ามีการกดทับ (และสั่งการเอฟเฟคเก่าเข้าคิวรอเลย)
+                if (isVideoDelaying && pendingVideoEffect) {
+                    pendingVideoEffect(); 
+                }
+                
+                isVideoDelaying = true; // เปิดโหมด "หยุดเกม"
+                activeVideoSlot = slot;
+                pendingVideoEffect = effectAction; // เก็บเอฟเฟค 3D ไว้ทำงานทีหลัง
+                
+                videoEl.src = videoFiles[slot];
+                videoEl.style.display = 'block';
+                videoEl.play().catch(e => console.log(e));
+
+                if (videoTimeout) clearTimeout(videoTimeout);
+                
+                videoTimeout = setTimeout(() => {
+                    videoEl.style.display = 'none';
+                    isVideoDelaying = false; // ปิดโหมดหยุดเกม เกมจะเริ่มเดินต่อ
+                    // พอ 10 วิ ปล่อยวิดีโอ เอฟเฟค 3D ถึงจะเริ่มทำงานจริง
+                    if (pendingVideoEffect) {
+                        pendingVideoEffect();
+                        pendingVideoEffect = null;
+                    }
+                }, 10000);
+            } else {
+                // ถ้าไม่มีวิดีโอ เอฟเฟคทำงานทันที (ถ้าเกมโดนหยุดอยู่ มันจะไปสะสมรอทำงานตอนเกมเดิน)
+                effectAction(); 
+            }
+        }
+
+        function stopVideo(slot) {
+            if (activeVideoSlot === slot) {
+                videoEl.pause();
+                videoEl.style.display = 'none';
+                activeVideoSlot = null;
+                isVideoDelaying = false;
+                if (videoTimeout) clearTimeout(videoTimeout);
+                pendingVideoEffect = null;
+            }
+        }
+
+        // ==========================================
+        // 2. ระบบเปิดเว็บไซต์ (Google iframe)
+        // ==========================================
+        const webWidget = document.getElementById('web-widget');
+        makeDraggable(webWidget, document.getElementById('web-drag-handle'));
+
+        // ปุ่มบวก ลบ ขยายหน้าต่างเว็บไซต์
+        let webW = 350;
+        let webH = 500;
+        document.getElementById('btn-web-zoom-in').addEventListener('click', () => {
+            webW += 50; webH += 70;
+            webWidget.style.width = webW + 'px';
+            webWidget.style.height = webH + 'px';
+        });
+        document.getElementById('btn-web-zoom-out').addEventListener('click', () => {
+            webW = Math.max(200, webW - 50); webH = Math.max(250, webH - 70);
+            webWidget.style.width = webW + 'px';
+            webWidget.style.height = webH + 'px';
+        });
+
+        // ปุ่มซ่อนเว็บ (ตาวิเศษ)
+        let webHidden = false;
+        document.getElementById('eye-web-btn').addEventListener('click', () => {
+            webHidden = !webHidden;
+            if (webHidden) {
+                webWidget.style.opacity = '0';
+                webWidget.style.pointerEvents = 'none';
+                document.getElementById('eye-web-btn').style.opacity = '0.5';
+            } else {
+                webWidget.style.opacity = '1';
+                webWidget.style.pointerEvents = 'auto';
+                document.getElementById('eye-web-btn').style.opacity = '1';
+            }
+        });
+
+        document.getElementById('open-web-btn').addEventListener('click', () => {
+            webWidget.style.display = 'block'; sidebar.classList.remove('open');
+        });
+        document.getElementById('btn-web-close').addEventListener('click', () => { webWidget.style.display = 'none'; });
+
+        // ==========================================
+        // UI & Modal Control ทั่วไป
+        // ==========================================
+        const sidebar = document.getElementById('sidebar');
+        document.getElementById('menu-toggle-btn').addEventListener('click', () => sidebar.classList.toggle('open'));
+        document.getElementById('close-sidebar-btn').addEventListener('click', () => sidebar.classList.remove('open'));
+        
+        const modals = { char: document.getElementById('character-modal'), audio: document.getElementById('audio-modal'), bgm: document.getElementById('bgm-modal'), win: document.getElementById('win-modal'), img: document.getElementById('image-modal'), video: document.getElementById('video-modal'), effcfg: document.getElementById('effcfg-modal') };
+        function openModal(name) { sidebar.classList.remove('open'); Object.values(modals).forEach(m => m.classList.remove('show')); modals[name].classList.add('show'); }
+        function closeModal(name) { modals[name].classList.remove('show'); }
+
+        document.getElementById('open-char-btn').addEventListener('click', () => openModal('char')); document.getElementById('close-char-btn').addEventListener('click', () => closeModal('char'));
+        document.getElementById('open-audio-btn').addEventListener('click', () => openModal('audio')); document.getElementById('close-audio-btn').addEventListener('click', () => closeModal('audio'));
+        document.getElementById('open-bgm-btn').addEventListener('click', () => openModal('bgm')); document.getElementById('close-bgm-btn').addEventListener('click', () => closeModal('bgm'));
+        document.getElementById('open-win-btn').addEventListener('click', () => openModal('win')); document.getElementById('close-win-btn').addEventListener('click', () => closeModal('win'));
+        document.getElementById('open-img-btn').addEventListener('click', () => openModal('img')); document.getElementById('close-img-btn').addEventListener('click', () => closeModal('img'));
+        document.getElementById('open-video-btn').addEventListener('click', () => openModal('video')); document.getElementById('close-video-btn').addEventListener('click', () => closeModal('video'));
+        document.getElementById('open-effect-cfg-btn').addEventListener('click', () => openModal('effcfg')); document.getElementById('close-effcfg-btn').addEventListener('click', () => closeModal('effcfg'));
+
+        // --- ระบบเสียง (BGM และ Effect) ---
+        const bgmAudio = new Audio(); let bgmPlaylist = []; let currentBgmIndex = 0;
+        bgmAudio.addEventListener('ended', () => { if (bgmPlaylist.length > 0) { currentBgmIndex++; if (currentBgmIndex >= bgmPlaylist.length) currentBgmIndex = 0; playBgm(currentBgmIndex); } });
+        function playBgm(index) { if (bgmPlaylist.length === 0) return; bgmAudio.src = bgmPlaylist[index].url; bgmAudio.play().catch(e => console.log("Auto-play prevented")); updateBgmUI(); }
+        function updateBgmUI() {
+            const listDiv = document.getElementById('bgm-items'); listDiv.innerHTML = '';
+            bgmPlaylist.forEach((song, i) => { const isPlaying = (i === currentBgmIndex && !bgmAudio.paused); listDiv.innerHTML += `<div class="bgm-item ${isPlaying ? 'playing' : ''}" style="background:rgba(255,255,255,0.1); padding:8px; border-radius:5px; margin-bottom:5px; font-size:0.85rem; color:#ddd; border-left:3px solid ${isPlaying?'#32CD32':'transparent'}">🎵 ${i+1}. ${song.name}</div>`; });
+            if(bgmPlaylist.length > 0) document.getElementById('empty-bgm-text').style.display = 'none';
+        }
+        document.getElementById('btn-add-bgm').addEventListener('click', () => {
+            const fileInput = document.getElementById('bgm-upload');
+            if (fileInput.files && fileInput.files.length > 0) {
+                Array.from(fileInput.files).forEach(file => { bgmPlaylist.push({ name: file.name, url: URL.createObjectURL(file) }); });
+                if (!bgmAudio.src || bgmAudio.paused) { currentBgmIndex = bgmPlaylist.length - fileInput.files.length; playBgm(currentBgmIndex); } else { updateBgmUI(); }
+                fileInput.value = '';
+            }
+        });
+        document.getElementById('bgm-volume').addEventListener('input', (e) => { bgmAudio.volume = e.target.value / 100; document.getElementById('bgm-vol-val').innerText = e.target.value; });
+
+        const customAudio = { 1: null, 2: null, 3: null, 4: null, 5: null }; let masterVolume = 1.0;
+        document.getElementById('volume-slider').addEventListener('input', (e) => { masterVolume = e.target.value / 100; document.getElementById('volume-val').innerText = e.target.value; for (let i = 1; i <= 5; i++) { if (customAudio[i]) customAudio[i].volume = masterVolume; } });
+        for (let i = 1; i <= 5; i++) { const fileInput = document.getElementById(`audio-file-${i}`); if(fileInput){ fileInput.addEventListener('change', function(e) { const file = e.target.files[0]; const statusText = document.getElementById(`audio-status-${i}`); if (file) { customAudio[i] = new Audio(URL.createObjectURL(file)); customAudio[i].loop = true; customAudio[i].volume = masterVolume; statusText.innerText = `สถานะ: ใส่แล้ว`; statusText.style.color = '#66ff66'; } else { if (customAudio[i]) customAudio[i].pause(); customAudio[i] = null; statusText.innerText = "สถานะ: ยังไม่มีเสียง"; statusText.style.color = '#ff6666'; } }); } }
+        function playCustomSound(slot) { if (customAudio[slot]) { customAudio[slot].currentTime = 0; customAudio[slot].play().catch(()=>{}); } }
+        function stopCustomSound(slot) { if (customAudio[slot] && !customAudio[slot].paused) { customAudio[slot].pause(); customAudio[slot].currentTime = 0; } }
+
+        // โหมดล่องหน (Eye Toggle ทั่วไป)
+        let isUIHidden = false;
+        document.getElementById('eye-toggle-btn').addEventListener('click', () => { isUIHidden = !isUIHidden; document.body.classList.toggle('ui-hidden', isUIHidden); });
+
+        let isClimbVisible = true;
+        document.getElementById('toggle-climb-btn').addEventListener('click', () => { isClimbVisible = !isClimbVisible; document.getElementById('btn-climb-container').style.opacity = isClimbVisible ? '1' : '0'; document.getElementById('toggle-climb-btn').innerText = isClimbVisible ? '👻 ซ่อนปุ่มปีน (กดได้)' : '👁️ โชว์ปุ่มปีน'; });
+
+        // เป้าหมาย
+        document.getElementById('target-btn').addEventListener('click', () => { let val = parseInt(document.getElementById('target-input').value); if(isNaN(val)) val=1000; if(val<1) val=1; if(val>100000) val=100000; FINISH_Y = val; LADDER_REAL_HEIGHT = FINISH_Y + 20; document.getElementById('target-input').value = val; document.getElementById('target-display').innerText = val.toLocaleString() + "m = WIN"; buildLadder(); });
+
+        // ระบบนับวิน
+        const winWidget = document.getElementById('win-widget'); const hudCurrentWin = document.getElementById('hud-current-win'); const hudTargetWin = document.getElementById('hud-target-win'); let winScale = 1.0;
+        document.getElementById('btn-show-win-widget').addEventListener('click', () => { hudCurrentWin.innerText = document.getElementById('init-current-win').value || 0; hudTargetWin.innerText = document.getElementById('init-target-win').value || 0; winWidget.style.display = 'block'; closeModal('win'); updateWinColor(); });
+        function updateWinColor() { let val = parseInt(hudCurrentWin.innerText); if(isNaN(val)) val = 0; if(val > 0) hudCurrentWin.style.color = '#32CD32'; else if(val < 0) hudCurrentWin.style.color = '#FF3333'; else hudCurrentWin.style.color = '#ffffff';  }
+        hudCurrentWin.addEventListener('input', updateWinColor); makeDraggable(winWidget, document.getElementById('win-drag-handle'));
+        document.getElementById('btn-zoom-in').addEventListener('click', () => { winScale = Math.min(winScale + 0.2, 2.5); winWidget.style.transform = `scale(${winScale})`; });
+        document.getElementById('btn-zoom-out').addEventListener('click', () => { winScale = Math.max(winScale - 0.2, 0.5); winWidget.style.transform = `scale(${winScale})`; });
+        document.getElementById('btn-win-close').addEventListener('click', () => { winWidget.style.display = 'none'; });
+
+        // ระบบรูปภาพอิสระ
+        let imageCounter = 0;
+        document.getElementById('btn-add-image').addEventListener('click', () => { const fileInput = document.getElementById('image-upload'); if (fileInput.files && fileInput.files[0]) { createFloatingImage(URL.createObjectURL(fileInput.files[0])); fileInput.value = ''; } });
+        function createFloatingImage(url) {
+            imageCounter++; const imgId = 'custom-img-' + imageCounter; const wrapper = document.createElement('div'); wrapper.className = 'custom-image-wrapper'; wrapper.id = imgId; wrapper.style.left = '40vw'; wrapper.style.top = '30vh';
+            wrapper.innerHTML = `<img src="${url}" class="custom-img-element"><div class="resize-handle bl"></div><div class="resize-handle br"></div>`; document.getElementById('ui-layer').appendChild(wrapper);
+            const listContainer = document.getElementById('image-list-container'); const emptyText = document.getElementById('empty-img-text'); if(emptyText) emptyText.style.display = 'none';
+            const listItem = document.createElement('div'); listItem.style.display = 'flex'; listItem.style.alignItems = 'center'; listItem.style.justifyContent = 'space-between'; listItem.style.marginBottom = '8px'; listItem.style.background = 'rgba(255,255,255,0.1)'; listItem.style.padding = '5px 10px'; listItem.style.borderRadius = '5px';
+            listItem.innerHTML = `<div style="display:flex; align-items:center; gap:10px;"><img src="${url}" style="width:30px; height:30px; object-fit:cover; border-radius:3px;"><span style="color:white; font-size:0.9rem;">รูปที่ ${imageCounter}</span></div><button class="small-btn close-btn" style="width:25px; height:25px; font-size:1rem;" onclick="removeImage('${imgId}', this)">X</button>`; listContainer.appendChild(listItem);
+            function setupResize(handle, isLeft) { let isResizing = false; let startX, startWidth, startLeft; const startResize = (e) => { e.stopPropagation(); isResizing = true; startX = e.touches ? e.touches[0].clientX : e.clientX; startWidth = wrapper.offsetWidth; startLeft = wrapper.offsetLeft; document.addEventListener('mousemove', doResize); document.addEventListener('mouseup', stopResize); document.addEventListener('touchmove', doResize, {passive: false}); document.addEventListener('touchend', stopResize); }; const doResize = (e) => { if (!isResizing) return; e.preventDefault(); const clientX = e.touches ? e.touches[0].clientX : e.clientX; const deltaX = clientX - startX; if (isLeft) { const newWidth = startWidth - deltaX; if (newWidth > 40) { wrapper.style.width = newWidth + 'px'; wrapper.style.left = (startLeft + deltaX) + 'px'; } } else { const newWidth = startWidth + deltaX; if (newWidth > 40) wrapper.style.width = newWidth + 'px'; } }; const stopResize = () => { isResizing = false; document.removeEventListener('mousemove', doResize); document.removeEventListener('mouseup', stopResize); document.removeEventListener('touchmove', doResize); document.removeEventListener('touchend', stopResize); }; handle.addEventListener('mousedown', startResize); handle.addEventListener('touchstart', startResize, {passive: false}); }
+            setupResize(wrapper.querySelector('.resize-handle.br'), false); setupResize(wrapper.querySelector('.resize-handle.bl'), true); makeDraggable(wrapper, wrapper); 
+        }
+        window.removeImage = function(imgId, btnElement) { const wrapper = document.getElementById(imgId); if(wrapper) wrapper.remove(); btnElement.parentElement.remove(); const listContainer = document.getElementById('image-list-container'); if(listContainer.querySelectorAll('div[style*="display: flex"]').length === 0) { document.getElementById('empty-img-text').style.display = 'block'; } };
+
+
+        // ==========================================
+        // ตั้งค่า THREE.JS และสร้างโมเดล
+        // ==========================================
+        const canvas = document.getElementById('game-canvas'); const scene = new THREE.Scene();
+        const skyColor = new THREE.Color(0x87CEEB); const spaceColor = new THREE.Color(0x020208); const dirtSkyColor = new THREE.Color(0x1a0f00); 
+        scene.background = skyColor.clone(); scene.fog = new THREE.FogExp2(skyColor, 0.012);
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 4000);
+        const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7); scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8); dirLight.position.set(10, 30, 20); scene.add(dirLight);
+
+        const ground = new THREE.Mesh(new THREE.PlaneGeometry(800, 400), new THREE.MeshLambertMaterial({ color: 0x3b8526 })); ground.rotation.x = -Math.PI / 2; ground.position.set(0, 0, -202); scene.add(ground);
+        const undergroundGroup = new THREE.Group(); const dirtMat = new THREE.MeshLambertMaterial({ color: 0x3d2314 });
+        const backDirtWall = new THREE.Mesh(new THREE.PlaneGeometry(800, 40), dirtMat); backDirtWall.position.set(0, -20, -2); undergroundGroup.add(backDirtWall); scene.add(undergroundGroup);
+        const rootMat = new THREE.MeshLambertMaterial({ color: 0x5c3a21 });
+        for(let i=0; i<20; i++) { const root = new THREE.Mesh(new THREE.CylinderGeometry(0.2+Math.random()*0.3, 0.05, 3+Math.random()*3, 5), rootMat); root.position.set((Math.random()-0.5)*40, -2-Math.random()*15, -1.8); root.rotation.z = (Math.random()-0.5)*1.0; root.rotation.x = (Math.random()-0.5)*0.5; undergroundGroup.add(root); }
+        let undergroundWorms = []; const wormMat = new THREE.MeshLambertMaterial({ color: 0xff6699 });
+        for(let i=0; i<15; i++) { const worm = new THREE.Group(); const w1 = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 1, 8), wormMat); w1.position.y = 0.5; const w2 = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 1, 8), wormMat); w2.position.y = -0.5; worm.add(w1); worm.add(w2); worm.position.set((Math.random()-0.5)*30, -3-Math.random()*12, -1.5); worm.userData = { speed: 2+Math.random()*3, offset: Math.random()*Math.PI }; undergroundGroup.add(worm); undergroundWorms.push({ mesh: worm, w1, w2 }); }
+        
+        const mountainMats = [new THREE.MeshLambertMaterial({ color: 0x2E8B57 }), new THREE.MeshLambertMaterial({ color: 0x3CB371 }), new THREE.MeshLambertMaterial({ color: 0x228B22 })];
+        for (let i = 0; i < 40; i++) { const h = 40+Math.random()*80; const mountain = new THREE.Mesh(new THREE.ConeGeometry(30+Math.random()*50, h, 8), mountainMats[Math.floor(Math.random()*mountainMats.length)]); mountain.position.set((Math.random()-0.5)*400, START_Y+(h/2)-5, -100-Math.random()*200); scene.add(mountain); }
+        
+        const clouds = []; const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
+        for(let i=0; i<30; i++) { const cloudGroup = new THREE.Group(); for(let j=0; j<4; j++) { const blob = new THREE.Mesh(new THREE.SphereGeometry(3+Math.random()*4, 6, 6), cloudMat); blob.position.set((Math.random()-0.5)*8, (Math.random()-0.5)*3, (Math.random()-0.5)*8); cloudGroup.add(blob); } cloudGroup.position.set((Math.random()-0.5)*300, 50+Math.random()*250, -50+Math.random()*150); clouds.push({ mesh: cloudGroup, speed: 0.02+Math.random()*0.05 }); scene.add(cloudGroup); }
+        
+        const starGeo = new THREE.BufferGeometry(); const starPos = []; for (let i = 0; i < 5000; i++) { starPos.push((Math.random()-0.5)*800, 400+Math.random()*105000, (Math.random()-0.5)*800); } starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3)); const starMat = new THREE.PointsMaterial({color: 0xffffff, size: 1.0, transparent: true, opacity: 0}); const stars = new THREE.Points(starGeo, starMat); scene.add(stars);
+
+        const planetsGroup = new THREE.Group(); scene.add(planetsGroup);
+        const moon = new THREE.Mesh(new THREE.SphereGeometry(15, 32, 32), new THREE.MeshLambertMaterial({color: 0xcccccc})); moon.position.set(-60, 550, -100); planetsGroup.add(moon);
+        
+        const sunGroup = new THREE.Group(); sunGroup.position.set(600, 1500, -1000); 
+        const sunCore = new THREE.Mesh(new THREE.IcosahedronGeometry(70, 4), new THREE.MeshBasicMaterial({ color: 0xffffee })); sunGroup.add(sunCore);
+        const sunPlasma1 = new THREE.Mesh(new THREE.IcosahedronGeometry(73, 3), new THREE.MeshBasicMaterial({ color: 0xffaa00, wireframe: true, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending })); sunGroup.add(sunPlasma1);
+        const sunPlasma2 = new THREE.Mesh(new THREE.IcosahedronGeometry(78, 4), new THREE.MeshBasicMaterial({ color: 0xff3300, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending })); sunGroup.add(sunPlasma2);
+        const sunGlow = new THREE.Mesh(new THREE.SphereGeometry(110, 32, 32), new THREE.MeshBasicMaterial({ color: 0xff5500, transparent: true, opacity: 0.15, blending: THREE.AdditiveBlending })); sunGroup.add(sunGlow); scene.add(sunGroup);
+
+        const travelingBeamGroup = new THREE.Group(); const tBeamGeo = new THREE.CylinderGeometry(15, 15, 1, 16); tBeamGeo.translate(0, 0.5, 0); 
+        travelingBeamGroup.add(new THREE.Mesh(tBeamGeo, new THREE.MeshBasicMaterial({color: 0xff3300, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending}))); travelingBeamGroup.add(new THREE.Mesh(new THREE.CylinderGeometry(8, 8, 1, 16).translate(0, 0.5, 0), new THREE.MeshBasicMaterial({color: 0xffffee, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending}))); travelingBeamGroup.visible = false; scene.add(travelingBeamGroup);
+        const playerLaserGroup = new THREE.Group(); playerLaserGroup.add(new THREE.Mesh(new THREE.CylinderGeometry(18, 18, 2000, 16), new THREE.MeshBasicMaterial({color: 0xff3300, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending}))); playerLaserGroup.add(new THREE.Mesh(new THREE.CylinderGeometry(8, 8, 2000, 16), new THREE.MeshBasicMaterial({color: 0xffffff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending}))); playerLaserGroup.visible = false; scene.add(playerLaserGroup);
+
+        const houseGroup = new THREE.Group(); houseGroup.position.set(200, START_Y, 150); 
+        const houseBase = new THREE.Mesh(new THREE.BoxGeometry(20, 15, 20), new THREE.MeshLambertMaterial({color: 0xddccaa})); houseBase.position.y = 7.5; houseGroup.add(houseBase);
+        const houseRoof = new THREE.Mesh(new THREE.ConeGeometry(16, 12, 4), new THREE.MeshLambertMaterial({color: 0xaa4433})); houseRoof.position.y = 21; houseRoof.rotation.y = Math.PI/4; houseGroup.add(houseRoof); scene.add(houseGroup);
+
+        const ladderGroup = new THREE.Group(); scene.add(ladderGroup); const poleMat = new THREE.MeshLambertMaterial({ color: 0x5C4033 }); 
+        const winZoneMat = new THREE.MeshBasicMaterial({ color: 0xFFFF00, transparent: true, opacity: 0.15 }); const winZone = new THREE.Mesh(new THREE.BoxGeometry(5, 20, 2), winZoneMat); scene.add(winZone);
+        const rockMesh = new THREE.Mesh(new THREE.DodecahedronGeometry(1.8, 1), new THREE.MeshLambertMaterial({ color: 0x5a5a5a })); rockMesh.visible = false; scene.add(rockMesh);
+
+        function buildLadder() {
+            while(ladderGroup.children.length > 0) { let child = ladderGroup.children[0]; ladderGroup.remove(child); if(child.geometry) child.geometry.dispose(); }
+            const poleHeight = LADDER_REAL_HEIGHT - LADDER_MIN_Y;
+            const leftPole = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, poleHeight, 8), poleMat); leftPole.position.set(-1.5, LADDER_MIN_Y + poleHeight / 2, 0); ladderGroup.add(leftPole);
+            const rightPole = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, poleHeight, 8), poleMat); rightPole.position.set(1.5, LADDER_MIN_Y + poleHeight / 2, 0); ladderGroup.add(rightPole);
+            const rungGeo = new THREE.BoxGeometry(3.5, 0.2, 0.2); const rungMat = new THREE.MeshLambertMaterial({ color: 0x8B5A2B });
+            const rungCount = Math.floor(poleHeight / 1.5); const rungsInstanced = new THREE.InstancedMesh(rungGeo, rungMat, rungCount); const matrix = new THREE.Matrix4();
+            for (let i = 0; i < rungCount; i++) { matrix.setPosition(0, LADDER_MIN_Y + (i * 1.5), 0); rungsInstanced.setMatrixAt(i, matrix); }
+            ladderGroup.add(rungsInstanced); winZone.position.set(0, FINISH_Y + 10, 0);
+        }
+        buildLadder();
+
+        // 8 ตัวละคร
+        const player = new THREE.Group(); let currentSkin = 'human';
+        let armL, armR, legPivotL, legPivotR; let cowL1, cowL2, cowL3, cowL4; let catL1, catL2, catL3, catL4;
+        let humanModel, ufoModel, saturnModel, mercuryModel, sunModel, cowModel, catModel, earthModel;
+        const skinMat = new THREE.MeshLambertMaterial({ color: 0xF5DEB3 }); const jongKrabenMat = new THREE.MeshLambertMaterial({ color: 0x800000 }); const sabaiMat = new THREE.MeshLambertMaterial({ color: 0xFFD700 }); const hairMat = new THREE.MeshLambertMaterial({ color: 0x111111 }); 
+        function createLimb(mat, width, length, depth, posX, posY, posZ) { const pivot = new THREE.Group(); pivot.position.set(posX, posY, posZ); const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, length, depth), mat); mesh.position.y = -length / 2; pivot.add(mesh); return pivot; }
+
+        humanModel = new THREE.Group(); const hBody = new THREE.Group(); hBody.add(new THREE.Mesh(new THREE.BoxGeometry(1.3, 1.4, 0.8), sabaiMat)); hBody.position.y = 1.6; humanModel.add(hBody); const hHead = new THREE.Group(); hHead.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.8), skinMat)); const hHair = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.4, 8), hairMat); hHair.position.set(0, 0.6, 0.2); hHead.add(hHair); hHead.position.y = 2.9; humanModel.add(hHead); armL = createLimb(skinMat, 0.4, 1.2, 0.4, -0.9, 2.2, 0); armR = createLimb(skinMat, 0.4, 1.2, 0.4, 0.9, 2.2, 0); humanModel.add(armL); humanModel.add(armR); legPivotL = new THREE.Group(); legPivotL.position.set(-0.4, 0.9, 0); const tl = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), jongKrabenMat); tl.position.y=-0.35; const cl=new THREE.Mesh(new THREE.BoxGeometry(0.4,0.6,0.4), skinMat); cl.position.y=-1; legPivotL.add(tl,cl); humanModel.add(legPivotL); legPivotR = new THREE.Group(); legPivotR.position.set(0.4, 0.9, 0); const tr = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), jongKrabenMat); tr.position.y=-0.35; const cr=new THREE.Mesh(new THREE.BoxGeometry(0.4,0.6,0.4), skinMat); cr.position.y=-1; legPivotR.add(tr,cr); humanModel.add(legPivotR); player.add(humanModel);
+        ufoModel = new THREE.Group(); ufoModel.add(new THREE.Mesh(new THREE.CylinderGeometry(2, 0.8, 0.6, 16), new THREE.MeshPhongMaterial({ color: 0x888888, shininess: 100 }))); const pDome = new THREE.Mesh(new THREE.SphereGeometry(1.2, 16, 16), new THREE.MeshPhongMaterial({ color: 0x00ffcc, transparent: true, opacity: 0.6 })); pDome.position.y=0.5; ufoModel.add(pDome); ufoModel.position.y = 1.5; ufoModel.visible = false; player.add(ufoModel);
+        saturnModel = new THREE.Group(); saturnModel.add(new THREE.Mesh(new THREE.SphereGeometry(1.2, 32, 32), new THREE.MeshLambertMaterial({color: 0xe3d599}))); const sR = new THREE.Mesh(new THREE.TorusGeometry(1.8, 0.2, 16, 64), new THREE.MeshLambertMaterial({color: 0xa89f80})); sR.rotation.x = Math.PI/2.5; saturnModel.add(sR); saturnModel.position.y = 1.5; saturnModel.visible = false; player.add(saturnModel);
+        mercuryModel = new THREE.Group(); mercuryModel.add(new THREE.Mesh(new THREE.SphereGeometry(1.0, 32, 32), new THREE.MeshLambertMaterial({color: 0x999999}))); mercuryModel.position.y = 1.5; mercuryModel.visible = false; player.add(mercuryModel);
+        sunModel = new THREE.Group(); sunModel.add(new THREE.Mesh(new THREE.SphereGeometry(1.3, 32, 32), new THREE.MeshBasicMaterial({color: 0xffaa00}))); sunModel.add(new THREE.Mesh(new THREE.SphereGeometry(1.5, 32, 32), new THREE.MeshBasicMaterial({color: 0xff5500, transparent:true, opacity:0.3, blending:THREE.AdditiveBlending}))); sunModel.position.y = 1.5; sunModel.visible = false; player.add(sunModel);
+        cowModel = new THREE.Group(); const aBMat = new THREE.MeshLambertMaterial({ color: 0xffffff }); const aHMat = new THREE.MeshLambertMaterial({ color: 0xdddddd }); const aLMat = new THREE.MeshLambertMaterial({ color: 0x333333 }); const cB = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1, 2), aBMat); cB.position.y = 1.5; cowModel.add(cB); const cH = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), aHMat); cH.position.set(0, 2.2, -1.2); cowModel.add(cH); const tlG = new THREE.BoxGeometry(0.3, 1, 0.3); cowL1 = new THREE.Mesh(tlG, aLMat); cowL1.position.set(-0.5, 0.5, 0.7); cowModel.add(cowL1); cowL2 = new THREE.Mesh(tlG, aLMat); cowL2.position.set(0.5, 0.5, 0.7); cowModel.add(cowL2); cowL3 = new THREE.Mesh(tlG, aLMat); cowL3.position.set(-0.5, 0.5, -0.7); cowModel.add(cowL3); cowL4 = new THREE.Mesh(tlG, aLMat); cowL4.position.set(0.5, 0.5, -0.7); cowModel.add(cowL4); cowModel.visible = false; player.add(cowModel);
+        catModel = new THREE.Group(); const catMat = new THREE.MeshLambertMaterial({ color: 0xffa500 }); const catB = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.8, 1.5), catMat); catB.position.y=1.2; catModel.add(catB); const catH = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.6, 0.6), catMat); catH.position.set(0, 1.7, -0.9); catModel.add(catH); const eL = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.3, 4), catMat); eL.position.set(-0.25, 2.1, -0.9); catModel.add(eL); const eR = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.3, 4), catMat); eR.position.set(0.25, 2.1, -0.9); catModel.add(eR); const catTail = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.8), catMat); catTail.position.set(0, 1.5, 0.8); catTail.rotation.x = Math.PI/4; catModel.add(catTail); catL1 = new THREE.Mesh(tlG, catMat); catL1.position.set(-0.3, 0.5, 0.5); catModel.add(catL1); catL2 = new THREE.Mesh(tlG, catMat); catL2.position.set(0.3, 0.5, 0.5); catModel.add(catL2); catL3 = new THREE.Mesh(tlG, catMat); catL3.position.set(-0.3, 0.5, -0.5); catModel.add(catL3); catL4 = new THREE.Mesh(tlG, catMat); catL4.position.set(0.3, 0.5, -0.5); catModel.add(catL4); catModel.visible = false; player.add(catModel);
+        earthModel = new THREE.Group(); const earthMesh = new THREE.Mesh(new THREE.SphereGeometry(1.2, 32, 32), new THREE.MeshLambertMaterial({color: 0x1177ff})); earthModel.add(earthMesh); for(let i=0; i<8; i++){ const patch = new THREE.Mesh(new THREE.SphereGeometry(0.4, 8, 8), new THREE.MeshLambertMaterial({color: 0x22aa22})); patch.position.set((Math.random()-0.5)*2, (Math.random()-0.5)*2, (Math.random()-0.5)*2).normalize().multiplyScalar(1.1); earthModel.add(patch); } earthModel.position.y = 1.5; earthModel.visible = false; player.add(earthModel);
+
+        const bootsGroup = new THREE.Group(); const bG = new THREE.BoxGeometry(0.6, 0.6, 0.8); const bM = new THREE.MeshLambertMaterial({ color: 0x555577 }); const fG = new THREE.ConeGeometry(0.3, 1.2, 8); const fM = new THREE.MeshBasicMaterial({ color: 0xff8800, transparent: true, opacity: 0.9 }); const bL = new THREE.Mesh(bG, bM); bL.position.set(-0.4, 0.3, 0); const fL = new THREE.Mesh(fG, fM); fL.position.set(0, -0.6, 0); fL.rotation.x = Math.PI; bL.add(fL); bootsGroup.add(bL); const bR = new THREE.Mesh(bG, bM); bR.position.set(0.4, 0.3, 0); const fR = new THREE.Mesh(fG, fM); fR.position.set(0, -0.6, 0); fR.rotation.x = Math.PI; bR.add(fR); bootsGroup.add(bR); bootsGroup.visible = false; player.add(bootsGroup);
+
+        player.position.set(0, START_Y, 1.2); scene.add(player);
+
+        // คัตซีนฮีโร่
+        const rescuerHero = new THREE.Group();
+        const rBody = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.5, 0.9), new THREE.MeshLambertMaterial({color: 0x2244aa})); rBody.position.y=1.5; rescuerHero.add(rBody);
+        const rHead = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.8), skinMat); rHead.position.y=2.8; rescuerHero.add(rHead);
+        const rCape = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 2.5), new THREE.MeshLambertMaterial({color: 0xdd1111, side: THREE.DoubleSide})); rCape.position.set(0, 1.2, 0.5); rCape.rotation.x = 0.2; rescuerHero.add(rCape);
+        const rArmL = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.2, 0.4), new THREE.MeshLambertMaterial({color: 0x2244aa})); rArmL.position.set(-0.9, 1.5, -0.4); rArmL.rotation.x = -Math.PI / 2; rArmL.rotation.z = 0.2; rescuerHero.add(rArmL);
+        const rArmR = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.2, 0.4), new THREE.MeshLambertMaterial({color: 0x2244aa})); rArmR.position.set(0.9, 1.5, -0.4); rArmR.rotation.x = -Math.PI / 2; rArmR.rotation.z = -0.2; rescuerHero.add(rArmR);
+        const rFlameL = new THREE.Mesh(new THREE.ConeGeometry(0.4, 1.5, 8), new THREE.MeshBasicMaterial({color: 0x00ffff, transparent:true, opacity:0.8})); rFlameL.position.set(-0.4, 0, 0); rFlameL.rotation.x=Math.PI; rescuerHero.add(rFlameL);
+        const rFlameR = new THREE.Mesh(new THREE.ConeGeometry(0.4, 1.5, 8), new THREE.MeshBasicMaterial({color: 0x00ffff, transparent:true, opacity:0.8})); rFlameR.position.set(0.4, 0, 0); rFlameR.rotation.x=Math.PI; rescuerHero.add(rFlameR);
+        rescuerHero.visible = false; scene.add(rescuerHero);
+
+        document.querySelectorAll('.char-card').forEach(card => {
+            card.addEventListener('click', () => { document.querySelectorAll('.char-card').forEach(c => c.classList.remove('active')); card.classList.add('active'); currentSkin = card.dataset.char; humanModel.visible = (currentSkin === 'human'); ufoModel.visible = (currentSkin === 'ufo'); saturnModel.visible = (currentSkin === 'saturn'); mercuryModel.visible = (currentSkin === 'mercury'); sunModel.visible = (currentSkin === 'sun'); cowModel.visible = (currentSkin === 'cow'); catModel.visible = (currentSkin === 'cat'); earthModel.visible = (currentSkin === 'earth'); setTimeout(() => closeModal('char'), 200); });
+        });
+
+        // ==========================================
+        // ควบคุมเกม & ผูกปุ่มเข้ากับระบบวิดีโอ/ปรับระยะ
+        // ==========================================
+        function stopClimbing() { 
+            isClimbing = false; stopCustomSound(1); stopVideo(1); 
+            if(isReversed) { isReversed = false; document.getElementById('btn-slot1').classList.remove('mode-down'); document.getElementById('btn-slot1').innerHTML = '1<br>▼ลง'; } 
+        }
+        
+        document.getElementById('btn-climb').addEventListener('pointerdown', (e) => { e.preventDefault(); if(!isCelebrating) { isClimbing = true; isReversed = false; document.getElementById('btn-slot1').classList.remove('mode-down'); document.getElementById('btn-slot1').innerHTML = '1<br>▼ลง'; } });
+        document.getElementById('btn-climb').addEventListener('pointerup', stopClimbing); document.getElementById('btn-climb').addEventListener('pointerleave', stopClimbing); document.getElementById('btn-climb').addEventListener('pointercancel', stopClimbing);
+
+        document.getElementById('btn-slot1').addEventListener('pointerdown', (e) => { 
+            e.preventDefault(); 
+            if(isClimbing && !isReversed && !isCelebrating) { 
+                handleEffectTrigger(1, () => {
+                    isReversed = true; 
+                    document.getElementById('btn-slot1').classList.add('mode-down'); 
+                    document.getElementById('btn-slot1').innerHTML = '1<br>กำลังลง'; 
+                    playCustomSound(1); 
+                });
+            } 
+        });
+
+        document.getElementById('btn-slot2').addEventListener('pointerdown', (e) => { 
+            e.preventDefault(); 
+            handleEffectTrigger(2, () => {
+                q_rock += (parseInt(document.getElementById('amt-slot2').value) || 50); 
+                document.getElementById('btn-slot2').classList.add('mode-rock'); 
+                playCustomSound(2); 
+            });
+        });
+
+        document.getElementById('btn-slot3').addEventListener('pointerdown', (e) => { 
+            e.preventDefault(); 
+            handleEffectTrigger(3, () => {
+                q_laser += (parseInt(document.getElementById('amt-slot3').value) || 500); 
+                document.getElementById('btn-slot3').classList.add('mode-laser'); 
+                playCustomSound(3); 
+                if (!cutsceneQueue.includes('laser') && activeCutscene !== 'laser') cutsceneQueue.push('laser'); 
+            });
+        });
+
+        document.getElementById('btn-slot4').addEventListener('pointerdown', (e) => { 
+            e.preventDefault(); 
+            handleEffectTrigger(4, () => {
+                q_rocket += (parseInt(document.getElementById('amt-slot4').value) || 50); 
+                document.getElementById('btn-slot4').classList.add('mode-rocket'); 
+                playCustomSound(4); 
+            });
+        });
+
+        document.getElementById('btn-slot5').addEventListener('pointerdown', (e) => { 
+            e.preventDefault(); 
+            handleEffectTrigger(5, () => {
+                q_suit += (parseInt(document.getElementById('amt-slot5').value) || 500); 
+                document.getElementById('btn-slot5').classList.add('mode-suit'); 
+                playCustomSound(5); 
+                if (!cutsceneQueue.includes('suit') && activeCutscene !== 'suit') cutsceneQueue.push('suit'); 
+            });
+        });
+
+        function updateButtonUI() {
+            document.getElementById('btn-slot2').innerHTML = '2<br>' + (q_rock > 0 ? '🪨'+Math.ceil(q_rock)+'m' : '🪨หิน');
+            document.getElementById('btn-slot3').innerHTML = '3<br>' + (q_laser > 0 ? '☀️'+Math.ceil(q_laser)+'m' : '☀️แสง');
+            document.getElementById('btn-slot4').innerHTML = '4<br>' + (q_rocket > 0 ? '🚀'+Math.ceil(q_rocket)+'m' : '🚀บิน');
+            document.getElementById('btn-slot5').innerHTML = '5<br>' + (q_suit > 0 ? '🦸‍♂️'+Math.ceil(q_suit)+'m' : '🦸‍♂️ฮีโร่');
+        }
+
+        function updateEnvironment() {
+            globalTime += 0.05;
+            sunPlasma1.rotation.x += 0.006; sunPlasma1.rotation.y += 0.008; sunPlasma2.rotation.x -= 0.004; sunPlasma2.rotation.y -= 0.007;
+            sunGroup.position.y = Math.max(1500, player.position.y + 800);
+            undergroundWorms.forEach(w => { w.w1.rotation.z = Math.sin(globalTime * w.mesh.userData.speed + w.mesh.userData.offset) * 0.4; w.w2.rotation.z = -Math.sin(globalTime * w.mesh.userData.speed + w.mesh.userData.offset) * 0.4; });
+            if (player.position.y < 400) { clouds.forEach(cloud => { cloud.mesh.position.x += cloud.speed; if(cloud.mesh.position.x > 150) cloud.mesh.position.x = -150; }); }
+
+            let spaceFactor = (player.position.y - 400) / 100; spaceFactor = Math.max(0, Math.min(1, spaceFactor));
+            let undergroundFactor = (START_Y - player.position.y) / 10; undergroundFactor = Math.max(0, Math.min(1, undergroundFactor));
+            if (activeCutscene !== null) spaceFactor = 1;
+
+            if (undergroundFactor > 0.1) {
+                scene.background.copy(skyColor).lerp(dirtSkyColor, undergroundFactor); scene.fog.color.copy(scene.background); scene.fog.density = 0.012 + (0.05 * undergroundFactor); planetsGroup.visible = false; starMat.opacity = 0;
+            } else {
+                scene.background.copy(skyColor).lerp(spaceColor, spaceFactor); scene.fog.color.copy(scene.background); scene.fog.density = 0.012 * (1 - spaceFactor); starMat.opacity = spaceFactor;
+                if (spaceFactor > 0.01) { planetsGroup.visible = true; moon.rotation.y += 0.005; } else { planetsGroup.visible = false; }
+            }
+        }
+
+        function updateGame() {
+            updateEnvironment();
+
+            saturnModel.rotation.y += 0.02; mercuryModel.rotation.y += 0.01; sunModel.rotation.y -= 0.01; earthModel.rotation.y += 0.015;
+
+            if (isCelebrating) {
+                armL.rotation.x = 3.14; armR.rotation.x = 3.14; armL.rotation.z = 0.5; armR.rotation.z = -0.5; legPivotL.rotation.x = 0; legPivotR.rotation.x = 0;
+            } else {
+                
+                if (activeCutscene === null && cutsceneQueue.length > 0) {
+                    activeCutscene = cutsceneQueue.shift(); cutsceneTimer = 0;
+                    if (activeCutscene === 'suit') { suitState = 1; document.getElementById('target-display').innerText = "HERO RESCUE!"; document.getElementById('target-display').className = "text-3xl stroke-text-green m-0 animate-pulse"; rescuerHero.position.copy(houseGroup.position); rescuerHero.position.y += 5; rescuerHero.visible = false; } 
+                    else if (activeCutscene === 'laser') { laserState = 1; document.getElementById('target-display').innerText = "!!! SUN STRIKE !!!"; document.getElementById('target-display').className = "text-3xl stroke-text-red m-0 animate-pulse"; travelingBeamGroup.visible = false; }
+                }
+
+                let isCutscenePlayingNow = false;
+
+                if (activeCutscene === 'laser') {
+                    isCutscenePlayingNow = true; cutsceneTimer++; sunPlasma1.rotation.y += 0.05; sunPlasma2.rotation.y -= 0.05;
+                    if (cutsceneTimer <= 60) {
+                        camera.position.set(sunGroup.position.x - 180, sunGroup.position.y + 80, sunGroup.position.z + 300); camera.lookAt(sunGroup.position); let pulse = 1 + Math.sin(cutsceneTimer * 0.4) * 0.08; sunGroup.scale.set(pulse, pulse, pulse);
+                        if (cutsceneTimer === 60) { travelingBeamGroup.visible = true; sunGroup.scale.setScalar(1); }
+                    } else if (cutsceneTimer <= 120) {
+                        let progress = (cutsceneTimer - 60) / 60; let targetPos = player.position.clone(); targetPos.y += 2; let dist = sunGroup.position.distanceTo(targetPos);
+                        travelingBeamGroup.position.copy(sunGroup.position); travelingBeamGroup.lookAt(targetPos); travelingBeamGroup.rotateX(Math.PI / 2); travelingBeamGroup.scale.set(1, Math.max(0.01, dist * progress), 1);
+                        let currentTip = new THREE.Vector3().lerpVectors(sunGroup.position, targetPos, progress); camera.position.copy(currentTip).add(new THREE.Vector3(-100, 50, 150)); camera.lookAt(currentTip);
+                        if (cutsceneTimer === 120) { document.getElementById('flash-overlay').style.opacity = "1"; }
+                    } else if (cutsceneTimer <= 130) {
+                        if (cutsceneTimer === 130) { travelingBeamGroup.visible = false; document.getElementById('flash-overlay').style.opacity = "0"; activeCutscene = null; laserState = 3; } 
+                    }
+                } else if (activeCutscene === 'suit') {
+                    isCutscenePlayingNow = true; cutsceneTimer++;
+                    if (cutsceneTimer <= 40) { camera.position.set(houseGroup.position.x - 60, houseGroup.position.y + 10, houseGroup.position.z + 60); camera.lookAt(houseGroup.position); if (cutsceneTimer === 40) rescuerHero.visible = true; } 
+                    else if (cutsceneTimer <= 90) {
+                        rescuerHero.position.lerp(player.position, 0.08); rescuerHero.position.y += Math.sin(cutsceneTimer*0.1) * 2; 
+                        rescuerHero.lookAt(player.position); rescuerHero.rotation.x = 0; rescuerHero.rotation.z = 0;
+                        camera.position.set(rescuerHero.position.x - 30, rescuerHero.position.y + 20, rescuerHero.position.z + 30); camera.lookAt(rescuerHero.position);
+                        if (rescuerHero.position.distanceTo(player.position) < 8) { document.getElementById('flash-overlay').style.opacity = "1"; cutsceneTimer = 90; }
+                    } else if (cutsceneTimer <= 100) { 
+                        document.getElementById('flash-overlay').style.opacity = "0"; 
+                        if (cutsceneTimer === 100) { activeCutscene = null; suitState = 4; } 
+                    }
+                }
+
+                if (!isCutscenePlayingNow) {
+                    let forceDownActive = (q_rock > 0) || (q_laser > 0 && laserState === 3);
+                    let forceUpActive = (q_rocket > 0) || (q_suit > 0 && suitState === 4);
+                    let isClashing = forceDownActive && forceUpActive;
+                    let moveUp = 0; let moveDown = 0;
+
+                    if (q_laser > 0 && laserState === 3) {
+                        let amt = Math.min(SPEED_LASER, q_laser); q_laser -= amt; if (!isClashing) moveDown += amt; 
+                        playerLaserGroup.visible = true; playerLaserGroup.position.set(0, player.position.y + 1000, 1.2); playerLaserGroup.scale.x = 1 + Math.sin(globalTime * 30) * 0.3; playerLaserGroup.scale.z = 1 + Math.sin(globalTime * 30) * 0.3;
+                        if (q_laser <= 0) { stopVideo(3); playerLaserGroup.visible = false; laserState = 0; document.getElementById('btn-slot3').classList.remove('mode-laser'); document.getElementById('target-display').innerText = FINISH_Y.toLocaleString() + "m = WIN"; document.getElementById('target-display').className = "text-2xl md:text-3xl stroke-text m-0"; stopCustomSound(3); }
+                    } else if (q_laser <= 0) { playerLaserGroup.visible = false; }
+
+                    if (q_rock > 0) {
+                        let amt = Math.min(SPEED_ROCK, q_rock); q_rock -= amt; if (!isClashing) moveDown += amt; rockMesh.visible = true; rockMesh.position.y = player.position.y + 3.0; rockMesh.rotation.x -= 0.1;
+                        if (q_rock <= 0) { stopVideo(2); rockMesh.visible = false; document.getElementById('btn-slot2').classList.remove('mode-rock'); stopCustomSound(2); }
+                    } else { rockMesh.visible = false; }
+
+                    if (q_suit > 0 && suitState === 4) { 
+                        let amt = Math.min(SPEED_SUIT, q_suit); q_suit -= amt; if (!isClashing) moveUp += amt;
+                        rescuerHero.visible = true; rescuerHero.position.copy(player.position); rescuerHero.position.y += 1.0; rescuerHero.position.z += 1.2; rescuerHero.rotation.set(0, 0, 0); 
+                        rFlameL.scale.setScalar(1 + Math.random()*0.5); rFlameR.scale.setScalar(1 + Math.random()*0.5);
+                        if (q_suit <= 0) { stopVideo(5); rescuerHero.visible = false; suitState = 0; document.getElementById('btn-slot5').classList.remove('mode-suit'); document.getElementById('target-display').innerText = FINISH_Y.toLocaleString() + "m = WIN"; document.getElementById('target-display').className = "text-2xl md:text-3xl stroke-text m-0"; stopCustomSound(5); }
+                    } else if (q_suit <= 0) { rescuerHero.visible = false; }
+
+                    if (q_rocket > 0) {
+                        let amt = Math.min(SPEED_ROCKET, q_rocket); q_rocket -= amt; if (!isClashing) moveUp += amt;
+                        if (q_suit <= 0) { bootsGroup.visible = true; fL.scale.setScalar(1 + Math.random() * 0.5); fR.scale.setScalar(1 + Math.random() * 0.5); }
+                        if (q_rocket <= 0) { stopVideo(4); bootsGroup.visible = false; document.getElementById('btn-slot4').classList.remove('mode-rocket'); stopCustomSound(4); }
+                    } else { bootsGroup.visible = false; }
+
+                    if (isClimbing && !forceDownActive && !isClashing) { if (isReversed) moveDown += SPEED_CLIMB; else moveUp += SPEED_CLIMB; }
+
+                    let netMove = moveUp - moveDown;
+                    player.position.y += netMove;
+                    if (player.position.y < LADDER_MIN_Y) player.position.y = LADDER_MIN_Y;
+                    if (player.position.y > LADDER_REAL_HEIGHT) player.position.y = LADDER_REAL_HEIGHT;
+
+                    let cameraShake = false; player.position.x = 0; player.position.z = 1.2;
+
+                    armL.rotation.x = 2.0; armR.rotation.x = 2.0; legPivotL.rotation.x = 0; legPivotR.rotation.x = 0;
+                    if (isClashing) {
+                        cameraShake = true; player.position.x = (Math.random() - 0.5) * 0.5; player.position.z = 1.8;
+                        armL.rotation.x = 2.5 + Math.sin(globalTime * 30) * 0.2; armR.rotation.x = 2.5 + Math.cos(globalTime * 30) * 0.2; legPivotL.rotation.x = Math.sin(globalTime * 20) * 0.5; legPivotR.rotation.x = Math.cos(globalTime * 20) * 0.5;
+                    } else if (q_suit > 0 && suitState === 4) { player.position.z = 1.8; armL.rotation.x = 3.14; armR.rotation.x = 3.14; 
+                    } else if (q_laser > 0 && laserState === 3) { cameraShake = true; player.position.x = (Math.random() - 0.5) * 0.3; armL.rotation.x = 3.14 + Math.sin(globalTime * 20) * 0.2; armR.rotation.x = 3.14 + Math.cos(globalTime * 20) * 0.2; legPivotL.rotation.x = Math.sin(globalTime * 15); legPivotR.rotation.x = Math.cos(globalTime * 15);
+                    } else if (q_rocket > 0 && !isClimbing) { player.position.z = 1.8; armL.rotation.x = 3.14; armR.rotation.x = 3.14; 
+                    } else if (q_rock > 0) { climbAnimTime += 0.5; armL.rotation.x = 3.0 + Math.sin(climbAnimTime) * 0.3; armR.rotation.x = 3.0 + Math.sin(climbAnimTime + Math.PI) * 0.3; legPivotL.rotation.x = Math.sin(climbAnimTime) * 1.5; legPivotR.rotation.x = Math.sin(climbAnimTime + Math.PI) * 1.5;
+                    } else if (netMove !== 0) { climbAnimTime += Math.abs(netMove) * 3; armL.rotation.x = 2.0 + Math.sin(climbAnimTime) * 0.8; armR.rotation.x = 2.0 + Math.sin(climbAnimTime + Math.PI) * 0.8; legPivotL.rotation.x = Math.sin(climbAnimTime + Math.PI) * 0.8; legPivotR.rotation.x = Math.sin(climbAnimTime) * 0.8; }
+
+                    if (netMove !== 0) ufoModel.rotation.y += 0.1; ufoModel.position.y = 1.5 + Math.sin(globalTime * 5) * 0.2;
+                    if (netMove !== 0) { cowL1.rotation.x = Math.sin(climbAnimTime) * 0.8; cowL4.rotation.x = Math.sin(climbAnimTime) * 0.8; cowL2.rotation.x = Math.sin(climbAnimTime + Math.PI) * 0.8; cowL3.rotation.x = Math.sin(climbAnimTime + Math.PI) * 0.8; catL1.rotation.x = Math.sin(climbAnimTime*1.5) * 0.8; catL4.rotation.x = Math.sin(climbAnimTime*1.5) * 0.8; catL2.rotation.x = Math.sin(climbAnimTime*1.5 + Math.PI) * 0.8; catL3.rotation.x = Math.sin(climbAnimTime*1.5 + Math.PI) * 0.8;
+                    } else { cowL1.rotation.x = 0; cowL2.rotation.x = 0; cowL3.rotation.x = 0; cowL4.rotation.x = 0; catL1.rotation.x = 0; catL2.rotation.x = 0; catL3.rotation.x = 0; catL4.rotation.x = 0; }
+
+                    checkFinishZone(); checkLoseZone();
+
+                    if (cameraShake) { camera.position.x = (Math.random() - 0.5) * 0.8; camera.position.y = player.position.y + 1 + (Math.random() - 0.5) * 0.6; camera.position.z = 14 + (Math.random() - 0.5) * 0.4; } 
+                    else { camera.position.x = 0; camera.position.y = player.position.y + 1; camera.position.z = 14; }
+                    camera.lookAt(0, player.position.y + 4, 0);
+                }
+            }
+
+            let currentHeight = Math.floor(player.position.y - START_Y); if (currentHeight < -10) currentHeight = -10; if (currentHeight > FINISH_Y) currentHeight = FINISH_Y; 
+            const heightDisplay = document.getElementById('height-display');
+            if(inLoseZone) heightDisplay.className = "text-6xl md:text-7xl stroke-text-red m-0"; else if(!inFinishZone) heightDisplay.className = "text-6xl md:text-7xl stroke-text-yellow m-0";
+            heightDisplay.innerText = currentHeight.toLocaleString() + "m"; updateButtonUI();
+        }
+
+        function changeWinCount(amount) { let cur = parseInt(hudCurrentWin.innerText); if (isNaN(cur)) cur = 0; cur += amount; hudCurrentWin.innerText = cur; updateWinColor(); }
+        function checkLoseZone() {
+            const isInsideLose = player.position.y <= LADDER_MIN_Y + 0.1; const countdownDisplay = document.getElementById('countdown-display'); const heightDisplay = document.getElementById('height-display');
+            if (isInsideLose && !inLoseZone && !inFinishZone) {
+                inLoseZone = true; countdownValue = 10; countdownDisplay.innerText = countdownValue; countdownDisplay.className = "stroke-text-red animate-pulse"; countdownDisplay.style.display = "block"; heightDisplay.className = "text-6xl md:text-7xl stroke-text-red m-0";
+                countdownInterval = setInterval(() => { countdownValue--; if (countdownValue > 0) { countdownDisplay.innerText = countdownValue; countdownDisplay.classList.remove('animate-pulse'); void countdownDisplay.offsetWidth; countdownDisplay.classList.add('animate-pulse'); } if (countdownValue <= 0) startGameOver(); }, 1000); 
+            } else if (!isInsideLose && inLoseZone) { inLoseZone = false; clearInterval(countdownInterval); countdownDisplay.style.display = "none"; heightDisplay.className = "text-6xl md:text-7xl stroke-text-yellow m-0"; }
+        }
+        function startGameOver() {
+            clearInterval(countdownInterval); isCelebrating = true; changeWinCount(-1); stopVideo(activeVideoSlot);
+            const countdownDisplay = document.getElementById('countdown-display'); countdownDisplay.innerText = "GAME OVER"; countdownDisplay.className = "stroke-text-red animate-bounce"; setTimeout(() => { warpToStart(); }, 3000);
+        }
+        function checkFinishZone() {
+            const isInside = player.position.y >= FINISH_Y; const countdownDisplay = document.getElementById('countdown-display'); const heightDisplay = document.getElementById('height-display');
+            if (isInside && !inFinishZone && !inLoseZone) {
+                inFinishZone = true; countdownValue = 10; countdownDisplay.innerText = countdownValue; countdownDisplay.className = "stroke-text-yellow animate-pulse"; countdownDisplay.style.display = "block"; heightDisplay.className = "text-6xl md:text-7xl stroke-text-green m-0";
+                countdownInterval = setInterval(() => { countdownValue--; if (countdownValue > 0) { countdownDisplay.innerText = countdownValue; countdownDisplay.classList.remove('animate-pulse'); void countdownDisplay.offsetWidth; countdownDisplay.classList.add('animate-pulse'); } if (countdownValue <= 0) startCelebration(); }, 1000); 
+            } else if (!isInside && inFinishZone) { inFinishZone = false; clearInterval(countdownInterval); countdownDisplay.style.display = "none"; heightDisplay.className = "text-6xl md:text-7xl stroke-text-yellow m-0"; }
+        }
+        function startCelebration() {
+            clearInterval(countdownInterval); isCelebrating = true; changeWinCount(1); stopVideo(activeVideoSlot);
+            const countdownDisplay = document.getElementById('countdown-display'); countdownDisplay.innerText = "WIN!"; countdownDisplay.className = "stroke-text-green animate-bounce";
+            fireworkGenerator = setInterval(() => { createFirework((Math.random() - 0.5) * 30, player.position.y + 5 + Math.random() * 15, (Math.random() - 0.5) * 10 - 5); }, 400); 
+            setTimeout(() => { clearInterval(fireworkGenerator); warpToStart(); }, 5000);
+        }
+        function warpToStart() { isCelebrating = false; inFinishZone = false; inLoseZone = false; document.getElementById('countdown-display').style.display = "none"; document.getElementById('height-display').className = "text-6xl md:text-7xl stroke-text-yellow m-0"; player.position.y = START_Y; player.position.z = 1.2; }
+        function createFirework(x, y, z) { const particleCount = 150; const geometry = new THREE.BufferGeometry(); const positions = new Float32Array(particleCount * 3); const velocities = []; const color = new THREE.Color(); color.setHSL(Math.random(), 1.0, 0.5); for (let i = 0; i < particleCount; i++) { positions[i * 3] = x; positions[i * 3 + 1] = y; positions[i * 3 + 2] = z; const theta = Math.random() * Math.PI * 2; const phi = Math.acos((Math.random() * 2) - 1); const speed = 0.5 + Math.random() * 1.5; velocities.push({ x: Math.sin(phi) * Math.cos(theta) * speed, y: Math.sin(phi) * Math.sin(theta) * speed, z: Math.cos(phi) * speed }); } geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3)); const material = new THREE.PointsMaterial({ size: 0.8, color: color, transparent: true, opacity: 1, blending: THREE.AdditiveBlending }); const points = new THREE.Points(geometry, material); scene.add(points); fireworks.push({ points, velocities, age: 0 }); }
+        function updateFireworks() { for (let i = fireworks.length - 1; i >= 0; i--) { const fw = fireworks[i]; fw.age++; const positions = fw.points.geometry.attributes.position.array; for (let j = 0; j < positions.length / 3; j++) { positions[j * 3] += fw.velocities[j].x; positions[j * 3 + 1] += fw.velocities[j].y; positions[j * 3 + 2] += fw.velocities[j].z; fw.velocities[j].y -= 0.005; } fw.points.geometry.attributes.position.needsUpdate = true; fw.points.material.opacity = 1 - (fw.age / 60); if (fw.age > 60) { scene.remove(fw.points); fw.points.geometry.dispose(); fw.points.material.dispose(); fireworks.splice(i, 1); } } }
+
+        function animate() { 
+            requestAnimationFrame(animate); 
+            // หยุดเกมถ้าวิดีโอกำลังเล่น
+            if (!isVideoDelaying) {
+                updateGame(); 
+                updateFireworks(); 
+            }
+            renderer.render(scene, camera); 
+        }
+        window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+        window.onload = () => { animate(); updateButtonUI(); };
+
+    </script>
+</body>
+</html>
